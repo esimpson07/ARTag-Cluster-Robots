@@ -1,0 +1,56 @@
+#define ENA D2
+#define IN1 D3
+#define IN2 D4
+#define IN3 D7
+#define IN4 D8
+#define ENB D6
+
+void setup() {
+  pinMode(ENA,OUTPUT);
+  pinMode(IN1,OUTPUT);
+  pinMode(IN2,OUTPUT);
+  pinMode(IN3,OUTPUT);
+  pinMode(IN4,OUTPUT);
+  pinMode(ENB,OUTPUT);
+}
+
+void loop() {
+  leftDrive(255);
+  rightDrive(255);
+  delay(5000);
+  leftDrive(0);
+  rightDrive(0);
+  delay(1500);
+}
+
+void leftDrive(double driveSpeed) {
+  if(driveSpeed > 0) {
+    analogWrite(ENA,abs(driveSpeed));
+    digitalWrite(IN1,LOW);
+    digitalWrite(IN2,HIGH);
+  } else if(driveSpeed < 0) {
+    analogWrite(ENA,abs(driveSpeed));
+    digitalWrite(IN1,HIGH);
+    digitalWrite(IN2,LOW);
+  } else {
+    analogWrite(ENA,0);
+    digitalWrite(IN1,HIGH);
+    digitalWrite(IN2,HIGH);
+  }
+}
+
+void rightDrive(double driveSpeed) {
+  if(driveSpeed > 0) {
+    analogWrite(ENB,abs(driveSpeed));
+    digitalWrite(IN3,LOW);
+    digitalWrite(IN4,HIGH);
+  } else if(driveSpeed < 0) {
+    analogWrite(ENB,abs(driveSpeed));
+    digitalWrite(IN3,HIGH);
+    digitalWrite(IN4,LOW);
+  } else {
+    analogWrite(ENB,0);
+    digitalWrite(IN3,HIGH);
+    digitalWrite(IN4,HIGH);
+  }
+}
