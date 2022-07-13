@@ -1,6 +1,5 @@
 #include <ESP8266WiFi.h>
 
-#define servoDriver 0x40
 #define SERVERMODE 0
 #define BAUD_SERIAL 115200
 #define RXBUFFERSIZE 1024
@@ -25,6 +24,7 @@ int pastLeftCount = 0;
 int pastRightCount = 0;
 int leftRPM = 0;
 int rightRPM = 0;
+int minSpeed = 30;
 
 long currentTime = 0;
 long pastTime = 0;
@@ -90,10 +90,11 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(EN2),encoderPulseR,CHANGE);
   
   Serial.begin(115200);
+  Serial.setTimeout(1);
   initServer();
   
-  PIDControllerL(0.5,0.0003,0.0);
-  PIDControllerR(0.5,0.0003,0.0);
+  PIDControllerL(0.55,0.0003,0.0);
+  PIDControllerR(0.55,0.0003,0.0);
   setSetPointL(0);
   setSetPointR(0);
 }
@@ -101,8 +102,10 @@ void setup() {
 void loop() {
   serverUpdate();
   finalRPM();
-  leftDrive(calculateL(leftRPM));
-  rightDrive(calculateR(rightRPM));
+  leftSpeed = calculateL(leftRPM);
+  rightSpeed = calculateR(rightRPM);
+  leftDrive(leftSpeed);
+  rightDrive(rightSpeed);
 }
 
 void initServer() {
@@ -141,19 +144,19 @@ ICACHE_RAM_ATTR void encoderPulseR() {
   rightCount += rightSpeed / abs(rightSpeed);
 }
 
-double findRPM(double past,double current, double timeDifferential,double dir) {
-  return(dir * (current - past) * (60000 / (timeDifferential * 40)));
+double findRPM(double past,double current, double timeDifferential) {
+  return((current - past) * (60000 / (timeDifferential * 40)));
 }
 
 void finalRPM() {
   currentTime = millis();
   if(currentTime >= pastTime + timeDelay) {
-    //Serial.print("Left RPM = ");
-    leftRPM = findRPM(pastLeftCount,leftCount,timeDelay,(leftSpeed / abs(leftSpeed)));
-    //Serial.println(leftRPM);
-    //Serial.print("Right RPM = ");
-    rightRPM = findRPM(pastRightCount,rightCount,timeDelay,(rightSpeed / abs(rightSpeed)));
-    //Serial.println(rightRPM);
+    Serial.print("Left RPM = ");
+    leftRPM = findRPM(pastLeftCount,leftCount,timeDelay);
+    Serial.println(leftRPM);
+    Serial.print("Right RPM = ");
+    rightRPM = findRPM(pastRightCount,rightCount,timeDelay);
+    Serial.println(rightRPM);
     pastRightCount = rightCount;
     pastLeftCount = leftCount;
     pastTime = currentTime;
@@ -205,6 +208,12 @@ double calculateR(double actualR) {
   timeIntervalR = currentTime - previousTimeR;
   if(timeIntervalR > 10) {
     errorR = (setPointR - actualR);
+    Serial.print("Error R = ");
+    Serial.println(errorR);
+    Serial.print("setpoint R = ");
+    Serial.println(setPointR);
+    Serial.print("actual R = ");
+    Serial.println(actualR);
     integralR += (errorR * timeIntervalR);
     derivativeR = (errorR - previousErrorR) / timeIntervalR;
     retValR = (PR * errorR) + (IR * integralR) + (DR * derivativeR);
@@ -215,11 +224,11 @@ double calculateR(double actualR) {
 }
 
 void leftDrive(int driveSpeed) {
-  if(driveSpeed > 0) {
+  if(driveSpeed > minSpeed) {
     analogWrite(ENA,abs(driveSpeed * 2.55));
     digitalWrite(IN1,LOW);
     digitalWrite(IN2,HIGH);
-  } else if(driveSpeed < 0) {
+  } else if(driveSpeed < -minSpeed) {
     analogWrite(ENA,abs(driveSpeed * 2.55));
     digitalWrite(IN1,HIGH);
     digitalWrite(IN2,LOW);
@@ -231,11 +240,11 @@ void leftDrive(int driveSpeed) {
 }
 
 void rightDrive(int driveSpeed) {
-  if(driveSpeed > 0) {
+  if(driveSpeed > minSpeed) {
     analogWrite(ENB,abs(driveSpeed * 2.55));
     digitalWrite(IN3,LOW);
     digitalWrite(IN4,HIGH);
-  } else if(driveSpeed < 0) {
+  } else if(driveSpeed < -minSpeed) {
     analogWrite(ENB,abs(driveSpeed * 2.55));
     digitalWrite(IN3,HIGH);
     digitalWrite(IN4,LOW);
