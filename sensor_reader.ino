@@ -11,6 +11,10 @@ int ledNum = 0;
 int R = 0;
 int G = 0;
 int B = 0;
+
+long pastTime;
+int timeDelay = 1000;
+
 CRGB leds[LED_AMT];
 
 void setup() {
@@ -40,13 +44,9 @@ void parseString(String inputMessage) {
 
 void mpuRead() {
   Vector accel = mpu.readNormalizeAccel();
-  Vector gyro = mpu.readNormalizeGyro();
-  Serial.print(accel.XAxis);
-  Serial.print(accel.YAxis);
-  Serial.println(accel.ZAxis);
-  Serial.print(gyro.XAxis);
-  Serial.print(gyro.YAxis);
-  Serial.println(gyro.ZAxis);
+  Vector gyro = mpu.readNormalizeGyro();  
+  String mpuData = "M:1;" + String(accel.XAxis) + ";2:" + String(accel.YAxis) + ";3:" + String(accel.ZAxis) + ";4:" + String(gyro.XAxis) + ";5:" + String(gyro.YAxis) + ";6:" + String(gyro.ZAxis) + ";E;";
+  Serial.println(mpuData);
 }
 
 void loop() {
@@ -55,5 +55,8 @@ void loop() {
   }
   leds[ledNum] = CRGB(R,G,B);
   FastLED.show();
-  mpuRead();
+  if(millis() > pastTime + timeDelay) {
+    mpuRead();
+    pastTime = millis();
+  }
 }
