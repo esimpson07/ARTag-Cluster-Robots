@@ -7,7 +7,7 @@ WiFiServer server(23);
 WiFiClient serverClients[MAX_SRV_CLIENTS];
 
 const char* ssid = "PandoraAccessPoint";
-const char* password = "         ";
+const char* password = "";
 
 int leftSpeed = 0;
 int rightSpeed = 0;
@@ -61,7 +61,7 @@ void serverUpdate(){
       uint8_t buf[maxToSerial];
       size_t tcp_got = serverClients[i].read(buf, maxToSerial);
       sbuf = String((char*)buf);
-      Serial.println(sbuf);
+      parseComputerString(sbuf);
     }
     if(Serial.available() > 0) {
       serverClients[i].println(Serial.readString());
@@ -69,13 +69,25 @@ void serverUpdate(){
   }
 }
 
-void parseString(String inputMessage) {
-  int CMD1POS = inputMessage.indexOf("1:");
-  int CMD2POS = inputMessage.indexOf("2:");
-  int ENDPOS = inputMessage.indexOf("E;");
-  
-  CMD1 = inputMessage.substring(CMD1POS + 2,CMD2POS).toInt();
-  CMD2 = inputMessage.substring(CMD2POS + 2,ENDPOS).toInt();
+void parseComputerString(String inputMessage) {
+  if(inputMessage.substring(0,2) == "C:") {
+    int CMD1POS = inputMessage.indexOf("1:");
+    int CMD2POS = inputMessage.indexOf("2:");
+    int ENDPOS = inputMessage.indexOf("E;");
+    
+    CMD1 = inputMessage.substring(CMD1POS + 2,CMD2POS).toInt();
+    CMD2 = inputMessage.substring(CMD2POS + 2,ENDPOS).toInt();
+  } else if(inputMessage.substring(0,2) == "R:") {
+    Serial.print(inputMessage);
+  }
+}
+
+String parseBoardString(String inputMessage) {
+  if(inputMessage.substring(0,2) == "M:") {
+    return(inputMessage);
+  } else {
+    return("");
+  }
 }
 
 void loop() {
