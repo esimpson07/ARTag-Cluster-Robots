@@ -45,7 +45,7 @@ void parseString(String inputMessage) {
 void mpuRead() {
   Vector accel = mpu.readNormalizeAccel();
   Vector gyro = mpu.readNormalizeGyro();  
-  String mpuData = "M:1;" + String(accel.XAxis) + ";2:" + String(accel.YAxis) + ";3:" + String(accel.ZAxis) + ";4:" + String(gyro.XAxis) + ";5:" + String(gyro.YAxis) + ";6:" + String(gyro.ZAxis) + ";E;";
+  String mpuData = "M:1:" + String(accel.XAxis) + ";2:" + String(accel.YAxis) + ";3:" + String(accel.ZAxis) + ";4:" + String(gyro.XAxis) + ";5:" + String(gyro.YAxis) + ";6:" + String(gyro.ZAxis) + ";E;";
   Serial.println(mpuData);
 }
 
