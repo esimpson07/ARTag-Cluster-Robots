@@ -7,7 +7,7 @@ WiFiServer server(23);
 WiFiClient serverClients[MAX_SRV_CLIENTS];
 
 const char* ssid = "PandoraAccessPoint";
-const char* password = "";
+const char* password = "b8070ecd10cd20";
 
 int leftSpeed = 0;
 int rightSpeed = 0;
