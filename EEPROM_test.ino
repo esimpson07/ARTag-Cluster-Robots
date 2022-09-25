@@ -1,23 +1,75 @@
 #include "wificonfig.h"
+#include <ESP8266WiFi.h>
+
+String sbuf;
+
+WiFiServer server(23);
+WiFiClient serverClients[5];
 
 wificonfig conf;
 
-long lastSerial = 0;
-const long serialTime = 500;
-
-long lastPrint = 0;
-const long printTime = 1000;
-long cTime = 0;
-
 void setup() {
   Serial.begin(115200);
-  delay(500);
-  conf.load();
+  delay(50);
+  serverInit();
+}
 
-  Serial.print("Starting SSID: ");
-  Serial.print(conf.ssid);
-  Serial.print(", PW: ");
-  Serial.println(conf.password);
+void serverInit() {
+  conf.load();
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(conf.ssid,conf.password);
+
+  long initTime = millis();
+  long systTime = initTime;
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print('.');
+    delay(500);
+    systTime = millis();
+    if(systTime - initTime >= 30000) break;
+  }
+  if(WiFi.status() == WL_CONNECTED) {
+    Serial.println();
+    Serial.print("connected, address=");
+    Serial.println(WiFi.localIP());
+    server.begin();
+    server.setNoDelay(true);
+  } else {
+    Serial.println("Unsuccessful, check password and try again.");
+  }
+}
+
+void serverUpdate(){
+  if (WiFi.status() == WL_CONNECTED) {
+    if (server.hasClient()) {
+      for (int i = 0; i < 5; i++) {
+        if (!serverClients[i]) {
+          serverClients[i] = server.available();
+          Serial.print("New client idx: ");
+          Serial.println(i);
+          break;
+        }
+  
+        if (i >= 5) {
+          server.available().println("no sessions available");
+          Serial.print("Server exceeded max connections: ");
+          Serial.println(5);
+        }
+      }
+    }
+  
+    for (int i = 0; i < 5; i++) {
+      while (serverClients[i].available()) {
+        size_t maxToSerial = std::min(serverClients[i].available(), Serial.availableForWrite());
+        maxToSerial = std::min(maxToSerial, (size_t)512);
+        uint8_t buf[maxToSerial];
+        size_t tcp_got = serverClients[i].read(buf, maxToSerial);
+        sbuf = String((char*)buf);
+      }
+      if(Serial.available() > 0) {
+        serverClients[i].println(Serial.readString());
+      }
+    }
+  }
 }
 
 void readSerial() {
@@ -29,33 +81,21 @@ void readSerial() {
     int ENDPOS = inputMessage.indexOf(";END;");
 
     if (SSIDPOS >= 0 && PASSWORDPOS >= 0 && ENDPOS >= 0) {
-      Serial.print("Saving SSID and password");
+      Serial.println("Saving SSID and password");
       conf.ssid = inputMessage.substring(SSIDPOS + 5, PASSWORDPOS);
       conf.password = inputMessage.substring(PASSWORDPOS + 10,ENDPOS);
   
       conf.save();
     }
+
+    Serial.print("SSID: ");
+    Serial.println(conf.ssid);
+    Serial.print("Password: ");
+    Serial.println(conf.password);
   }
 }
 
 void loop() {
-  cTime = millis();
-
-  if (cTime > lastSerial + serialTime) {
-    lastSerial = cTime;
-    
-    readSerial();
-  }
-
-    
-  if (cTime > lastPrint + printTime) {
-    lastPrint = cTime;
-
-    conf.load();
-    Serial.print("SSID: ");
-    Serial.print(conf.ssid);
-    Serial.print(", PW: ");
-    Serial.println(conf.password);
-  }
-  delay(10);
+  readSerial();
+  serverUpdate();
 }
