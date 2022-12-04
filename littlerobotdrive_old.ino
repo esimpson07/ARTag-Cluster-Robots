@@ -1,7 +1,9 @@
 #include <ESP8266WiFi.h>
+#include "PID.h"
 
-#define SERVERMODE 0
-#define BAUD_SERIAL 115200
+PID lPID;
+PID rPID;
+
 #define RXBUFFERSIZE 1024
 #define STACK_PROTECTOR  512
 #define MAX_SRV_CLIENTS 5
@@ -15,7 +17,7 @@
 
 #define EN1 D1
 #define EN2 D5
-
+ 
 int leftSpeed = 0;
 int rightSpeed = 0;
 int leftCount = 0;
@@ -24,41 +26,13 @@ int pastLeftCount = 0;
 int pastRightCount = 0;
 int leftRPM = 0;
 int rightRPM = 0;
-int rpmDelay = 50;
-float leftRPMbuf[] = {0,0,0,0,0,0,0,0};
-float rightRPMbuf[] = {0,0,0,0,0,0,0,0};
 int minSpeed = 30;
+
+
 
 long currentTime = 0;
 long pastTime = 0;
 long timeDelay = 75;
-
-double retValL = 0;
-double retValR = 0;
-
-double previousTimeL = 0;
-double timeIntervalL = 0;
-double integralL = 0;
-double derivativeL = 0;
-double setPointL = 0;
-double errorL = 0;
-double previousErrorL = 0;
-double PL = 0;
-double IL = 0;
-double DL = 0;
-double valL = 0;
-
-double previousTimeR = 0;
-double timeIntervalR = 0;
-double integralR = 0;
-double derivativeR = 0;
-double setPointR = 0;
-double errorR = 0;
-double previousErrorR = 0;
-double PR = 0;
-double IR = 0;
-double DR = 0;
-double valR = 0;
 
 String sbuf = "510510";
 WiFiServer server(23); // the port the telnet connection is on
@@ -68,42 +42,55 @@ WiFiClient serverClients[MAX_SRV_CLIENTS];
 const char* ssid = "None";
 const char* password = "None";
 #else
-IPAddress local_ip(192, 168, 1, 1);
-IPAddress gateway(192, 168, 1, 1);
-IPAddress subnet(255, 255, 255, 0);
+IPAddress local_ip(192,168,1,1);
+IPAddress gateway(192,168,1,1);
+IPAddress subnet(255,255,255,0);
 String id = "ESPsoftAP_10";
 String pw = "Soft_AP_PW";
 #endif
 
 /*
-   Important things to know:
-   - Uses telnet connection on ESP8266 12F
-   - Runs on 2 TT motors with l298n
-   - Max RPM on decent batteries ~ 210 RPM
-   - 180 RPM = 1/3 m/s
-*/
+ * Important things to know:
+ * - Uses telnet connection on ESP8266 12F
+ * - Runs on 2 TT motors with l298n
+ * - Max RPM on decent batteries ~ 210 RPM
+ * - 180 RPM = 1/3 m/s
+ */
 void setup() {
-  pinMode(ENA, OUTPUT);
-  pinMode(IN1, OUTPUT);
-  pinMode(IN2, OUTPUT);
-  pinMode(IN3, OUTPUT);
-  pinMode(IN4, OUTPUT);
-  pinMode(ENB, OUTPUT);
-  attachInterrupt(digitalPinToInterrupt(EN1), encoderPulseL, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(EN2), encoderPulseR, CHANGE);
-
+  pinMode(ENA,OUTPUT);
+  pinMode(IN1,OUTPUT);
+  pinMode(IN2,OUTPUT);
+  pinMode(IN3,OUTPUT);
+  pinMode(IN4,OUTPUT);
+  pinMode(ENB,OUTPUT);
+  attachInterrupt(digitalPinToInterrupt(EN1),encoderPulseL,CHANGE);
+  attachInterrupt(digitalPinToInterrupt(EN2),encoderPulseR,CHANGE);
+  
   Serial.begin(115200);
   Serial.setTimeout(1);
   initServer();
+  
+  lPID.setPID(0.9,0.0004,0.0);
+  rPID.setPID(0.9,0.0004,0.0);
+  lPID.setSetPoint(0);
+  rPID.setSetPoint(0);
+}
 
-  PIDControllerL(0.55, 0.0003, 0.0);
-  PIDControllerR(0.55, 0.0003, 0.0);
-  setSetPointL(0);
-  setSetPointR(0);
+void loop() {
+  serverUpdate();
+  finalRPM();
+  leftSpeed = lPID.calculate(leftRPM);
+  Serial.print("leftRPM = ");
+  Serial.println(leftRPM);
+  rightSpeed = rPID.calculate(rightRPM);
+  Serial.print("rightRPM = ");
+  Serial.println(rightRPM);
+  leftDrive(leftSpeed);
+  rightDrive(rightSpeed);
 }
 
 void initServer() {
-#if SERVERMODE
+  #if SERVERMODE
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
 
@@ -114,10 +101,10 @@ void initServer() {
   Serial.println();
   Serial.print("connected, address=");
   Serial.println(WiFi.localIP());
-#else
+  #else
   Serial.print("Setting soft-AP ... ");
   boolean result = WiFi.softAP(id, pw);
-  if (result == true)
+  if(result == true)
   {
     WiFi.softAPConfig(local_ip, gateway, subnet);
     Serial.println("Wifi Ready");
@@ -125,155 +112,67 @@ void initServer() {
     Serial.print("WiFi Failed: ");
     Serial.println(result);
   }
-#endif
+  #endif
   server.begin();
   server.setNoDelay(true);
 }
 
-void loop() {
-  currentTime = millis();
-  serverUpdate();
-  updateRPM();
-  leftSpeed = calculateL(leftRPM);
-  rightSpeed = calculateR(rightRPM);
-  leftDrive(leftSpeed);
-  rightDrive(rightSpeed);
-  Serial.println(leftRPM);
-  Serial.println(rightRPM);
-}
-
-void updateRPM() {
-  if(currentTime > leftRPMbuf[0] + rpmDelay) {
-    leftRPM = 0;
-  }
-  if(currentTime > rightRPMbuf[0] + rpmDelay) {
-    rightRPM = 0;
-  }
-}
-
 ICACHE_RAM_ATTR void encoderPulseL() {
   leftCount += leftSpeed / abs(leftSpeed);
-  rollLeft();
-}
-
-void rollLeft() {
-  for(int i = 7; i >= 0; i --) {
-    if(i != 0) {
-      leftRPMbuf[i] = leftRPMbuf[i - 1];
-    } else {
-      leftRPMbuf[i] = currentTime;
-    }
-  }
-  leftRPM = (60000 / (((leftRPMbuf[0] - leftRPMbuf[1]) + (leftRPMbuf[1] - leftRPMbuf[2]) + (leftRPMbuf[2] - leftRPMbuf[3]) + (leftRPMbuf[3] - leftRPMbuf[4]) + (leftRPMbuf[4] - leftRPMbuf[5]) + (leftRPMbuf[5] - leftRPMbuf[6]) + (leftRPMbuf[6] - leftRPMbuf[7])) / 7)) / 40;
 }
 
 ICACHE_RAM_ATTR void encoderPulseR() {
   rightCount += rightSpeed / abs(rightSpeed);
-  rollRight();
 }
 
-void rollRight() {
-  for(int i = 7; i >= 0; i --) {
-    if(i != 0) {
-      rightRPMbuf[i] = rightRPMbuf[i - 1];
-    } else {
-      rightRPMbuf[i] = currentTime;
-    }
+double findRPM(double past,double current, double timeDifferential) {
+  return((current - past) * (60000 / (timeDifferential * 40)));
+}
+
+void finalRPM() {
+  currentTime = millis();
+  if(currentTime >= pastTime + timeDelay) {
+    leftRPM = findRPM(pastLeftCount,leftCount,timeDelay);
+    rightRPM = findRPM(pastRightCount,rightCount,timeDelay);
+    pastRightCount = rightCount;
+    pastLeftCount = leftCount;
+    pastTime = currentTime;
   }
-  rightRPM = (60000 / (((rightRPMbuf[0] - rightRPMbuf[1]) + (rightRPMbuf[1] - rightRPMbuf[2]) + (rightRPMbuf[2] - rightRPMbuf[3]) + (rightRPMbuf[3] - rightRPMbuf[4]) + (rightRPMbuf[4] - rightRPMbuf[5]) + (rightRPMbuf[5] - rightRPMbuf[6]) + (rightRPMbuf[6] - rightRPMbuf[7])) / 7)) / 40;
-}
-
-double findRPM(double past, double current, double timeDifferential) {
-  return ((current - past) * (60000 / (timeDifferential * 40)));
-}
-
-void PIDControllerL(double P, double I, double D) {
-  setPIDL(P, I, D);
-}
-
-void PIDControllerR(double P, double I, double D) {
-  setPIDR(P, I, D);
-}
-
-void setPIDL(double a, double b, double c) {
-  PL = a;
-  IL = b;
-  DL = c;
-}
-
-void setPIDR(double a, double b, double c) {
-  PR = a;
-  IR = b;
-  DR = c;
-}
-
-void setSetPointL(double value) {
-  setPointL = value;
-}
-
-void setSetPointR(double value) {
-  setPointR = value;
-}
-
-double calculateL(double actualL) {
-  timeIntervalL = currentTime - previousTimeL;
-  if (timeIntervalL > 10) {
-    errorL = (setPointL - actualL);
-    integralL += (errorL * timeIntervalL);
-    derivativeL = (errorL - previousErrorL) / timeIntervalL;
-    retValL = (PL * errorL) + (IL * integralL) + (DL * derivativeL);
-    previousErrorL = errorL;
-    previousTimeL = currentTime;
-  }
-  return (retValL);
-}
-
-double calculateR(double actualR) {
-  timeIntervalR = currentTime - previousTimeR;
-  if (timeIntervalR > 10) {
-    errorR = (setPointR - actualR);
-    integralR += (errorR * timeIntervalR);
-    derivativeR = (errorR - previousErrorR) / timeIntervalR;
-    retValR = (PR * errorR) + (IR * integralR) + (DR * derivativeR);
-    previousErrorR = errorR;
-    previousTimeR = currentTime;
-  }
-  return (retValR);
 }
 
 void leftDrive(int driveSpeed) {
-  if (driveSpeed > minSpeed) {
-    analogWrite(ENA, abs(driveSpeed * 2.55));
-    digitalWrite(IN1, LOW);
-    digitalWrite(IN2, HIGH);
-  } else if (driveSpeed < -minSpeed) {
-    analogWrite(ENA, abs(driveSpeed * 2.55));
-    digitalWrite(IN1, HIGH);
-    digitalWrite(IN2, LOW);
+  if(driveSpeed > minSpeed) {
+    analogWrite(ENA,abs(driveSpeed * 2.55));
+    digitalWrite(IN1,LOW);
+    digitalWrite(IN2,HIGH);
+  } else if(driveSpeed < -minSpeed) {
+    analogWrite(ENA,abs(driveSpeed * 2.55));
+    digitalWrite(IN1,HIGH);
+    digitalWrite(IN2,LOW);
   } else {
-    analogWrite(ENA, 0);
-    digitalWrite(IN1, HIGH);
-    digitalWrite(IN2, HIGH);
+    analogWrite(ENA,0);
+    digitalWrite(IN1,HIGH);
+    digitalWrite(IN2,HIGH);
   }
 }
 
 void rightDrive(int driveSpeed) {
-  if (driveSpeed > minSpeed) {
-    analogWrite(ENB, abs(driveSpeed * 2.55));
-    digitalWrite(IN3, LOW);
-    digitalWrite(IN4, HIGH);
-  } else if (driveSpeed < -minSpeed) {
-    analogWrite(ENB, abs(driveSpeed * 2.55));
-    digitalWrite(IN3, HIGH);
-    digitalWrite(IN4, LOW);
+  if(driveSpeed > minSpeed) {
+    analogWrite(ENB,abs(driveSpeed * 2.55));
+    digitalWrite(IN3,LOW);
+    digitalWrite(IN4,HIGH);
+  } else if(driveSpeed < -minSpeed) {
+    analogWrite(ENB,abs(driveSpeed * 2.55));
+    digitalWrite(IN3,HIGH);
+    digitalWrite(IN4,LOW);
   } else {
-    analogWrite(ENB, 0);
-    digitalWrite(IN3, HIGH);
-    digitalWrite(IN4, HIGH);
+    analogWrite(ENB,0);
+    digitalWrite(IN3,HIGH);
+    digitalWrite(IN4,HIGH);
   }
 }
 
-void serverUpdate() {
+void serverUpdate(){
   if (server.hasClient()) {
     for (int i = 0; i < MAX_SRV_CLIENTS; i++) {
       if (!serverClients[i]) {
@@ -299,10 +198,9 @@ void serverUpdate() {
       size_t tcp_got = serverClients[i].read(buf, maxToSerial);
 
       sbuf = String((char*)buf);
-      setSetPointL((sbuf.substring(0, 3).toInt() - 510) / 1.417);
-      setSetPointR((sbuf.substring(3, 6).toInt() - 510) / 1.417);
-      Serial.println(setPointL);
-      Serial.println(setPointR);
+      lPID.setSetPoint((sbuf.substring(0,3).toInt() - 510) / 1.417);
+      rPID.setSetPoint((sbuf.substring(3,6).toInt() - 510) / 1.417);
+      Serial.println((sbuf.substring(0,3).toInt() - 510) / 1.417);
     }
   }
 }
